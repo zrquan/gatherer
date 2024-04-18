@@ -196,6 +196,13 @@ func (runner *Runner) prepare() {
 
 	cc.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Request.AbsoluteURL(e.Attr("href"))
+		if opts.IgnoreQuery {
+			u, err := url.Parse(link)
+			if err != nil {
+				log.WithField("link", link).Error("Parse URL error")
+			}
+			link = util.StripQueryParams(u)
+		}
 		switch runner.dispatch(link) {
 		case 0:
 			e.Request.Visit(link)

@@ -34,6 +34,7 @@ type Options struct {
 	VisitSubdomains bool
 	NoRedirect      bool
 	UseChrome       bool
+	IgnoreQuery     bool
 	JSONFormat      bool
 
 	wordlist *input.Wordlist
@@ -55,6 +56,7 @@ func ParseOptions() (*Options, error) {
 	flag.BoolVar(&opts.VisitSubdomains, "sub", false, "Allow to visit sub-domains")
 	flag.BoolVar(&opts.NoRedirect, "nr", false, "Disallow auto redirect")
 	flag.BoolVar(&opts.UseChrome, "ch", false, "Run Javascript in headless Chrome")
+	flag.BoolVar(&opts.IgnoreQuery, "igq", false, "Ignore the query portion on the URL from a[href]")
 	flag.BoolVar(&opts.JSONFormat, "json", false, "Log as JSON format")
 
 	flag.Parse()

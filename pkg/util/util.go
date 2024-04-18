@@ -2,6 +2,7 @@ package util
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"path"
 	"regexp"
@@ -86,4 +87,10 @@ func Dedup(original []string) []string {
 		}
 	}
 	return result
+}
+
+func StripQueryParams(u *url.URL) string {
+	var stripped = fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
+	stripped = strings.TrimRight(stripped, "/")
+	return stripped
 }
