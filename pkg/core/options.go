@@ -31,8 +31,7 @@ type Options struct {
 	Debug           bool
 	RandomUA        bool
 	Proxy           string
-	FollowExternal  bool
-	FollowSubdomain bool
+	VisitSubdomains bool
 	NoRedirect      bool
 	UseChrome       bool
 	JSONFormat      bool
@@ -53,8 +52,7 @@ func ParseOptions() (*Options, error) {
 	flag.BoolVar(&opts.Debug, "debug", false, "Debug mode")
 	flag.BoolVar(&opts.RandomUA, "ua", false, "Use random User-Agent")
 	flag.StringVar(&opts.Proxy, "proxy", "", "Proxy URL")
-	flag.BoolVar(&opts.FollowExternal, "fe", false, "Allow to visit third-party domains")
-	flag.BoolVar(&opts.FollowSubdomain, "fs", true, "Allow to visit sub-domains")
+	flag.BoolVar(&opts.VisitSubdomains, "sub", false, "Allow to visit sub-domains")
 	flag.BoolVar(&opts.NoRedirect, "nr", false, "Disallow auto redirect")
 	flag.BoolVar(&opts.UseChrome, "ch", false, "Run Javascript in headless Chrome")
 	flag.BoolVar(&opts.JSONFormat, "json", false, "Log as JSON format")

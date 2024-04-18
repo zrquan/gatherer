@@ -119,8 +119,8 @@ func initCollector(opts *Options) (*colly.Collector, error) {
 	c := colly.NewCollector(
 		colly.MaxDepth(opts.Depth),
 		colly.Async(true),
+		colly.AllowedDomains(hostname),
 	)
-	colly.AllowedDomains(hostname)
 
 	if opts.Debug {
 		c.SetDebugger(&debug.LogDebugger{
@@ -142,7 +142,7 @@ func initCollector(opts *Options) (*colly.Collector, error) {
 	excludeExtensions := `(?i)\.(png|apng|bmp|gif|ico|cur|jpg|jpeg|jfif|pjp|pjpeg|svg|tif|tiff|webp|xbm|3gp|aac|flac|mpg|mpeg|mp3|mp4|m4a|m4v|m4p|oga|ogg|ogv|mov|wav|webm|eot|woff|woff2|ttf|otf)(?:\?|#|$)`
 	c.DisallowedURLFilters = append(c.DisallowedURLFilters, regexp.MustCompile(excludeExtensions))
 
-	if !opts.FollowExternal {
+	if opts.VisitSubdomains {
 		filter, err := util.FilterSubdomains(hostname)
 		if err != nil {
 			return nil, err
