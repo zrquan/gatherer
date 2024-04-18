@@ -9,6 +9,7 @@ Gatherer 是一个简易的爬虫工具，它可以从各种内容中收集资�
 - 从 Swagger 文档中解析 API 的完整路径、方法、参数
 - 从 robots.txt 中收集资源链接
 - 从 XML sitemap 中收集资源链接
+- 执行 JS 完成页面渲染，比如 SPA
 
 ## Thanks
 
