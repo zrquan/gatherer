@@ -50,6 +50,26 @@ func NewRunner(opts *Options) (*Runner, error) {
 }
 
 func (runner *Runner) Execute() {
+	if tt := runner.options.TotalTimeout; tt <= 0 {
+		runner.startCollect()
+	} else {
+		finished := make(chan int, 1)
+		go func() {
+			runner.startCollect()
+			finished <- 1
+		}()
+
+		select {
+		case <-finished:
+			close(finished)
+			log.Info("All done.")
+		case <-time.After(time.Duration(tt) * time.Second):
+			log.Error("Gatherer timeout.")
+		}
+	}
+}
+
+func (runner *Runner) startCollect() {
 	opts := runner.options
 	runner.coreCollector.Visit(opts.Target)
 	if opts.WordlistPath != "" {

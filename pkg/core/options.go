@@ -24,6 +24,7 @@ type Options struct {
 	Target          string
 	Depth           int
 	Timeout         int
+	TotalTimeout    int
 	Headers         headerFlag
 	WordlistPath    string
 	Parallel        int
@@ -45,6 +46,7 @@ func ParseOptions() (*Options, error) {
 	flag.StringVar(&opts.Target, "u", "", "Target URL")
 	flag.IntVar(&opts.Depth, "dep", 1, "Maximum path depth")
 	flag.IntVar(&opts.Timeout, "t", 10, "Request timeout (second)")
+	flag.IntVar(&opts.TotalTimeout, "tt", 0, "Total timeout (second)")
 	flag.Var(&opts.Headers, "H", "HTTP request headers")
 	flag.StringVar(&opts.WordlistPath, "w", "", "Wordlist file path")
 	flag.IntVar(&opts.Parallel, "limit", 100, "")
