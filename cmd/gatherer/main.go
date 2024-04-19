@@ -10,7 +10,7 @@ import (
 const version = "0.1.0"
 
 func main() {
-	fmt.Printf("API Caver v%s\n\n", version)
+	fmt.Printf("Gatherer v%s\n\n", version)
 
 	opts, err := core.ParseOptions()
 	if err != nil {
