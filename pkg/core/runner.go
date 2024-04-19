@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 )
 
 type Runner struct {
+	mutex         sync.Mutex
 	options       *Options
 	coreCollector *colly.Collector
 	jsCollector   *colly.Collector
@@ -117,6 +119,7 @@ func initCollector(opts *Options) (*colly.Collector, error) {
 		return nil, err
 	}
 	c := colly.NewCollector(
+		// TODO: 在不同 collector 传递链接时继承请求深度
 		colly.MaxDepth(opts.Depth),
 		colly.Async(true),
 		colly.AllowedDomains(hostname),
@@ -151,18 +154,6 @@ func initCollector(opts *Options) (*colly.Collector, error) {
 		c.URLFilters = []*regexp.Regexp{filter}
 	}
 
-	// 禁止自动重定向
-	if opts.NoRedirect {
-		c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
-			var locations string
-			for _, v := range via {
-				locations += fmt.Sprintf(" <- %s", v.URL.String())
-			}
-			log.Warn("skip redirection: " + req.URL.String() + locations)
-			return http.ErrUseLastResponse
-		})
-	}
-
 	c.WithTransport(tp)
 
 	return c, nil
@@ -173,6 +164,29 @@ func (runner *Runner) prepare() {
 	opts := runner.options
 	cc := runner.coreCollector
 	jc := runner.jsCollector
+
+	// 禁止自动重定向
+	if opts.NoRedirect {
+		cc.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+			var locations string
+			for _, v := range via {
+				locations += fmt.Sprintf(" <- %s", v.URL.String())
+			}
+			log.Warn("Skip redirection: " + req.URL.String() + locations)
+			return http.ErrUseLastResponse
+		})
+	} else {
+		cc.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+			runner.mutex.Lock()
+			defer runner.mutex.Unlock()
+
+			if runner.urlSet.Contains(req.URL.String()) {
+				return http.ErrUseLastResponse
+			}
+			runner.urlSet.Add(req.URL.String())
+			return nil
+		})
+	}
 
 	// 设置请求头
 	for _, h := range opts.Headers {
@@ -333,7 +347,6 @@ func (runner *Runner) prepare() {
 		}
 	})
 
-	// FIXME: 如果没有禁止重定向，可能会输出重复的 URL
 	cc.OnScraped(func(r *colly.Response) {
 		url := r.Request.URL.String()
 		runner.urlSet.Add(url)
