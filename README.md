@@ -2,6 +2,8 @@
 
 Gatherer 是一个简易的爬虫工具，它可以从各种内容中收集资源链接和 API 然后进行访问
 
+[![asciicast](https://asciinema.org/a/lv1EaQyBFkeOtI74DBjP7vFRs.svg)](https://asciinema.org/a/lv1EaQyBFkeOtI74DBjP7vFRs)
+
 ```
 Gatherer v0.1.0
 
