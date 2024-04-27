@@ -23,11 +23,10 @@ import (
 )
 
 type Runner struct {
-	mutex         sync.Mutex
-	options       *Options
-	coreCollector *colly.Collector
-	jsCollector   *colly.Collector
-	errorCounter  int64
+	mutex        sync.Mutex
+	options      *Options
+	collector    *colly.Collector
+	errorCounter int64
 
 	urlSet mapset.Set[string]
 	lenSet mapset.Set[int]
@@ -40,14 +39,13 @@ func NewRunner(opts *Options) (*Runner, error) {
 	}
 
 	runner := &Runner{
-		options:       opts,
-		coreCollector: collector,
-		jsCollector:   collector.Clone(),
-		errorCounter:  0,
-		urlSet:        mapset.NewSet[string](opts.Target),
-		lenSet:        mapset.NewSet[int](0),
+		options:      opts,
+		collector:    collector,
+		errorCounter: 0,
+		urlSet:       mapset.NewSet[string](opts.Target),
+		lenSet:       mapset.NewSet[int](0),
 	}
-	runner.prepare()
+	runner.prepareHooks()
 	return runner, nil
 }
 
@@ -73,7 +71,7 @@ func (runner *Runner) Execute() {
 
 func (runner *Runner) startCollect() {
 	opts := runner.options
-	runner.coreCollector.Visit(opts.Target)
+	runner.collector.Visit(opts.Target)
 	if opts.WordlistPath != "" {
 		for opts.wordlist.Next() {
 			path := string(opts.wordlist.Value())
@@ -82,18 +80,13 @@ func (runner *Runner) startCollect() {
 				log.Warn("invalid path from wordlist:", path)
 				continue
 			}
-			switch runner.dispatch(link) {
-			case 0:
-				runner.coreCollector.Visit(link)
-			case 1:
-				// Javascript 链接由 jsCollector 处理
-				runner.jsCollector.Visit(link)
-			case -1:
-				continue
-			}
+			runner.collector.Visit(link)
 		}
 	}
-	runner.Wait()
+	runner.collector.Wait()
+	log.
+		WithFields(log.Fields{"visited": runner.urlSet.Cardinality(), "error": runner.errorCounter}).
+		Info("Gathering finished.")
 }
 
 // 根据命令选项初始化 colly.Collector
@@ -159,15 +152,14 @@ func initCollector(opts *Options) (*colly.Collector, error) {
 	return c, nil
 }
 
-// prepare 方法用于设置回调函数
-func (runner *Runner) prepare() {
+// prepareHooks 方法用于设置回调函数
+func (runner *Runner) prepareHooks() {
 	opts := runner.options
-	cc := runner.coreCollector
-	jc := runner.jsCollector
+	c := runner.collector
 
 	// 禁止自动重定向
 	if opts.NoRedirect {
-		cc.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+		c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
 			var locations string
 			for _, v := range via {
 				locations += fmt.Sprintf(" <- %s", v.URL.String())
@@ -176,10 +168,10 @@ func (runner *Runner) prepare() {
 			return http.ErrUseLastResponse
 		})
 	} else {
-		cc.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+		c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
 			runner.mutex.Lock()
 			defer runner.mutex.Unlock()
-
+			// 避免多次重定向到同一位置
 			if runner.urlSet.Contains(req.URL.String()) {
 				return http.ErrUseLastResponse
 			}
@@ -193,22 +185,17 @@ func (runner *Runner) prepare() {
 		headerArgs := strings.SplitN(h, ":", 2)
 		headerKey := strings.TrimSpace(headerArgs[0])
 		headerValue := strings.TrimSpace(headerArgs[1])
-		cc.OnRequest(func(r *colly.Request) {
-			r.Headers.Set(headerKey, headerValue)
-		})
-		jc.OnRequest(func(r *colly.Request) {
+		c.OnRequest(func(r *colly.Request) {
 			r.Headers.Set(headerKey, headerValue)
 		})
 	}
 
 	// 统计错误次数
-	reqErr := func(r *colly.Response, err error) {
+	c.OnError(func(r *colly.Response, err error) {
 		atomic.AddInt64(&runner.errorCounter, 1)
-	}
-	cc.OnError(reqErr)
-	jc.OnError(reqErr)
+	})
 
-	cc.OnHTML("a[href]", func(e *colly.HTMLElement) {
+	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Request.AbsoluteURL(e.Attr("href"))
 		if opts.IgnoreQuery {
 			u, err := url.Parse(link)
@@ -217,60 +204,49 @@ func (runner *Runner) prepare() {
 			}
 			link = util.StripQueryParams(u)
 		}
-		switch runner.dispatch(link) {
-		case 0:
-			e.Request.Visit(link)
-		case 1:
-			jc.Visit(link)
-		}
+		runner.visitLink(link, e.Request)
 	})
 
-	cc.OnHTML("script[src]", func(e *colly.HTMLElement) {
+	c.OnHTML("script[src]", func(e *colly.HTMLElement) {
 		link := e.Request.AbsoluteURL(e.Attr("src"))
-		if !runner.urlSet.Contains(link) {
-			// Javascript 链接由 jsCollector 处理
-			jc.Visit(link)
-		}
+		runner.visitLink(link, e.Request)
 	})
 
-	cc.OnHTML("form[action]", func(e *colly.HTMLElement) {
+	c.OnHTML("form[action]", func(e *colly.HTMLElement) {
 		link := e.Request.AbsoluteURL(e.Attr("action"))
-		if !runner.urlSet.Contains(link) {
-			// TODO: 处理表单提交和文件上传
-			e.Request.Visit(link)
-		}
+		runner.visitLink(link, e.Request)
 	})
 
-	cc.OnHTML("title", func(e *colly.HTMLElement) {
+	c.OnHTML("title", func(e *colly.HTMLElement) {
 		title := util.FilterNewLines(e.Text)
 		if title != "" {
 			e.Request.Ctx.Put("title", title)
 		}
 
 		if title == "Swagger UI" && strings.HasSuffix(e.Request.URL.Path, "swagger-ui.html") {
-			jc.Visit(e.Request.AbsoluteURL("swagger-resources"))
+			runner.visitLink(e.Request.AbsoluteURL("swagger-resources"), e.Request)
 		}
 	})
 
 	// sitemap
-	cc.OnXML("//urlset/url/loc", func(e *colly.XMLElement) {
+	c.OnXML("//urlset/url/loc", func(e *colly.XMLElement) {
 		link := e.Text
-		switch runner.dispatch(link) {
-		case 0:
-			e.Request.Visit(link)
-		case 1:
-			jc.Visit(link)
-		}
+		runner.visitLink(link, e.Request)
 	})
 
-	cc.OnResponse(func(r *colly.Response) {
+	c.OnResponse(func(r *colly.Response) {
 		if runner.filterResp(r) {
 			return
 		}
 
+		if opts.UseChrome {
+			if err := renderPage(r, opts.Timeout, opts.Proxy); err != nil {
+				log.Warn("chromep error: ", err)
+			}
+		}
+
 		// TODO: support openapi 3.x
-		ct := r.Headers.Get("Content-Type")
-		if strings.HasPrefix(ct, "application/json") && bytes.ContainsAny(r.Body, `"swagger": "2.0"`) {
+		if util.IsSwaggerSchema(r) {
 			endpoints, err := finder.FindLinksFromSwagger(r.Body)
 			if err != nil {
 				log.Errorf("Parse swagger error: %s", err)
@@ -289,8 +265,29 @@ func (runner *Runner) prepare() {
 						headers.Set(k, v)
 					}
 
-					cc.Request(method, url, dataReader, r.Ctx, headers)
+					c.Request(method, url, dataReader, r.Ctx, headers)
 				}
+			}
+		}
+
+		if util.IsScriptOrJSON(r.Request.URL.String()) {
+			endpoints := mapset.NewSet[string]()
+
+			content := string(r.Body)
+			if strings.Contains(content, `document.createElement("script");`) {
+				dynamicLinks := finder.FindDynamicLinksFromJS(content)
+				for _, dl := range dynamicLinks {
+					log.Printf("Found dynamic script \"%s\" from JS file: %s", dl, r.Request.URL.String())
+					endpoints.Add(dl)
+				}
+			}
+
+			endpoints.Append(finder.FindLinksFromJS(content)...)
+			log.Printf("Found %d links from JS file: %s", endpoints.Cardinality(), r.Request.URL.String())
+
+			for ep := range endpoints.Iterator().C {
+				link := util.FixURL(r.Request.URL, ep)
+				runner.visitLink(link, r.Request)
 			}
 		}
 
@@ -298,92 +295,29 @@ func (runner *Runner) prepare() {
 			endpoints := finder.FindLinksFromRobots(string(r.Body))
 			for _, e := range endpoints {
 				link := r.Request.AbsoluteURL(e)
-				switch runner.dispatch(link) {
-				case 0:
-					r.Request.Visit(link)
-				case 1:
-					jc.Visit(link)
-				case -1:
-					continue
-				}
-			}
-		}
-
-		if opts.UseChrome {
-			if err := renderPage(r, opts.Timeout, opts.Proxy); err != nil {
-				log.Warn("chromep error: ", err)
-				return
+				runner.visitLink(link, r.Request)
 			}
 		}
 	})
 
-	jc.OnResponse(func(r *colly.Response) {
-		if runner.filterResp(r) {
-			return
-		}
-
-		endpoints := mapset.NewSet[string]()
-
-		content := string(r.Body)
-		if strings.Contains(content, `document.createElement("script");`) {
-			dynamicLinks := finder.FindDynamicLinksFromJS(content)
-			for _, dl := range dynamicLinks {
-				log.Printf("Found dynamic script \"%s\" from JS file: %s", dl, r.Request.URL.String())
-				endpoints.Add(dl)
-			}
-		}
-
-		endpoints.Append(finder.FindLinksFromJS(content)...)
-		log.Printf("Found %d links from JS file: %s", endpoints.Cardinality(), r.Request.URL.String())
-
-		for ep := range endpoints.Iterator().C {
-			link := util.FixURL(r.Request.URL, ep)
-			switch runner.dispatch(link) {
-			case 0:
-				cc.Visit(link)
-			case 1:
-				r.Request.Visit(link)
-			}
-		}
-	})
-
-	cc.OnScraped(func(r *colly.Response) {
+	c.OnScraped(func(r *colly.Response) {
 		url := r.Request.URL.String()
 		runner.urlSet.Add(url)
 
 		var fields log.Fields
 		if t := r.Ctx.Get("title"); t != "" {
-			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body), "error": runner.errorCounter, "title": t}
+			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body), "title": t}
 		} else {
-			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body), "error": runner.errorCounter}
+			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body)}
 		}
 
 		log.WithFields(fields).Info(url)
 	})
-	jc.OnScraped(func(r *colly.Response) {
-		url := r.Request.URL.String()
-		runner.urlSet.Add(url)
-
-		log.WithFields(log.Fields{"code": r.StatusCode, "length": len(r.Body), "error": runner.errorCounter}).Info(url)
-	})
 }
 
-// 根据传入的 url 决定如何访问，返回值为如下 int 类型
-// 0: 使用 core collector 访问
-// 1: 使用 js collector 访问
-// -1: 跳过对该 url 的访问
-func (runner *Runner) dispatch(url string) int {
-	ext := util.GetExtension(url)
-	if !runner.urlSet.Contains(url) {
-		if ext == ".js" || ext == ".json" {
-			return 1
-		} else if strings.HasSuffix(url, "swagger-resources") {
-			return 1
-		} else {
-			return 0
-		}
-	} else {
-		return -1
+func (runner *Runner) visitLink(link string, request *colly.Request) {
+	if !runner.urlSet.Contains(link) {
+		request.Visit(link)
 	}
 }
 
@@ -399,9 +333,4 @@ func (runner *Runner) filterResp(resp *colly.Response) bool {
 		runner.lenSet.Add(len(resp.Body))
 		return false
 	}
-}
-
-func (runner *Runner) Wait() {
-	runner.coreCollector.Wait()
-	runner.jsCollector.Wait()
 }

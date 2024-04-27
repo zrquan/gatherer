@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
@@ -8,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/gocolly/colly/v2"
 )
 
 func FixURL(base *url.URL, path string) string {
@@ -93,4 +96,15 @@ func StripQueryParams(u *url.URL) string {
 	var stripped = fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
 	stripped = strings.TrimRight(stripped, "/")
 	return stripped
+}
+
+func IsSwaggerSchema(resp *colly.Response) bool {
+	ct := resp.Headers.Get("Content-Type")
+	flag := []byte(`"swagger":`)
+	return strings.HasPrefix(ct, "application/json") && bytes.Contains(resp.Body, flag)
+}
+
+func IsScriptOrJSON(link string) bool {
+	ext := GetExtension(link)
+	return ext == ".js" || ext == ".ts" || ext == ".json" || strings.HasSuffix(link, "swagger-resources")
 }

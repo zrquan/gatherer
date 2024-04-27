@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/zrquan/gatherer/pkg/core"
+	"github.com/zrquan/gatherer/internal/core"
 )
 
 const version = "0.1.0"
