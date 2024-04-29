@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/debug"
 	"github.com/gocolly/colly/v2/extensions"
@@ -28,8 +31,9 @@ type Runner struct {
 	collector    *colly.Collector
 	errorCounter int64
 
-	urlSet mapset.Set[string]
-	lenSet mapset.Set[int]
+	urlSet  mapset.Set[string]
+	lenSet  mapset.Set[int]
+	browser *rod.Browser
 }
 
 func NewRunner(opts *Options) (*Runner, error) {
@@ -38,12 +42,20 @@ func NewRunner(opts *Options) (*Runner, error) {
 		return nil, err
 	}
 
+	l := launcher.New().
+		Headless(true).
+		Set("ignore-certificate-errors", "1").
+		Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3830.0 Safari/537.36").
+		Proxy(opts.Proxy).
+		MustLaunch()
+
 	runner := &Runner{
 		options:      opts,
 		collector:    collector,
 		errorCounter: 0,
 		urlSet:       mapset.NewSet[string](opts.Target),
 		lenSet:       mapset.NewSet[int](0),
+		browser:      rod.New().ControlURL(l).MustConnect(),
 	}
 	runner.prepareHooks()
 	return runner, nil
@@ -84,6 +96,7 @@ func (runner *Runner) startCollect() {
 		}
 	}
 	runner.collector.Wait()
+	runner.browser.MustClose()
 	log.
 		WithFields(log.Fields{"visited": runner.urlSet.Cardinality(), "error": runner.errorCounter}).
 		Info("Gathering finished.")
@@ -240,8 +253,22 @@ func (runner *Runner) prepareHooks() {
 		}
 
 		if opts.UseChrome {
-			if err := renderPage(r, opts.Timeout, opts.Proxy); err != nil {
-				log.Warn("chromep error: ", err)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.Timeout)*time.Second)
+			defer cancel()
+
+			page := runner.browser.Context(ctx).MustPage(r.Request.URL.String())
+			defer page.MustClose()
+
+			err := page.WaitLoad()
+			if err != nil {
+				log.Warn("browser error: ", err)
+			} else {
+				content, err := page.HTML()
+				if err != nil {
+					log.Warn("browser error: ", err)
+				} else {
+					r.Body = []byte(content)
+				}
 			}
 		}
 
@@ -275,7 +302,7 @@ func (runner *Runner) prepareHooks() {
 
 			content := string(r.Body)
 			if strings.Contains(content, `document.createElement("script");`) {
-				dynamicLinks := finder.FindDynamicLinksFromJS(content)
+				dynamicLinks := finder.FindDynamicLinksFromJS(content, runner.browser)
 				for _, dl := range dynamicLinks {
 					log.Printf("Found dynamic script \"%s\" from JS file: %s", dl, r.Request.URL.String())
 					endpoints.Add(dl)
