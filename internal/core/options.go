@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"net/url"
 
 	"github.com/zrquan/gatherer/pkg/input"
 	"github.com/zrquan/gatherer/pkg/output"
@@ -37,7 +39,8 @@ type Options struct {
 	IgnoreQuery     bool
 	JSONFormat      bool
 
-	wordlist *input.Wordlist
+	wordlist   *input.Wordlist
+	targetRoot string
 }
 
 func ParseOptions() (*Options, error) {
@@ -76,6 +79,9 @@ func validateOptions(opts *Options) error {
 	if !util.IsAbsoluteURL(opts.Target) {
 		return errors.New("invalid target URL")
 	}
+	u, _ := url.Parse(opts.Target)
+	opts.targetRoot = fmt.Sprintf("%s://%s/", u.Scheme, u.Host)
+
 	if opts.Proxy != "" && !util.IsAbsoluteURL(opts.Proxy) {
 		return errors.New("invalid proxy URL")
 	}

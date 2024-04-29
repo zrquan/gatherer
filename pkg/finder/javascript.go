@@ -106,7 +106,7 @@ func FindDynamicLinksFromJS(source string, browser *rod.Browser) []string {
 			for _, name := range nameList {
 				returnValue, err := evalJavascript(jsFunc, name, browser)
 				if err != nil {
-					continue
+					break
 				}
 				endpoints = append(endpoints, returnValue)
 			}
@@ -120,6 +120,7 @@ func evalJavascript(jsFunc, name string, browser *rod.Browser) (string, error) {
 	page := browser.MustPage("about:blank")
 	defer page.MustClose()
 
+	name = strings.ReplaceAll(name, `"`, "")
 	result, err := page.Eval(jsFunc, name)
 	if err != nil {
 		fmt.Println("Failed to execute script:", err)

@@ -313,7 +313,13 @@ func (runner *Runner) prepareHooks() {
 			log.Printf("Found %d links from JS file: %s", endpoints.Cardinality(), r.Request.URL.String())
 
 			for ep := range endpoints.Iterator().C {
-				link := util.FixURL(r.Request.URL, ep)
+				var link string
+				if strings.HasPrefix(ep, "./") {
+					link = util.FixURL(r.Request.URL, ep)
+				} else {
+					u, _ := url.Parse(opts.targetRoot)
+					link = util.FixURL(u, ep)
+				}
 				runner.visitLink(link, r.Request)
 			}
 		}
@@ -328,12 +334,17 @@ func (runner *Runner) prepareHooks() {
 	})
 
 	c.OnScraped(func(r *colly.Response) {
+		runner.mutex.Lock()
+		defer runner.mutex.Unlock()
+
 		url := r.Request.URL.String()
 		runner.urlSet.Add(url)
 
 		var fields log.Fields
 		if t := r.Ctx.Get("title"); t != "" {
 			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body), "title": t}
+			// reset page title
+			r.Ctx.Put("title", "")
 		} else {
 			fields = log.Fields{"code": r.StatusCode, "length": len(r.Body)}
 		}
