@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/zrquan/gatherer/pkg/filter"
 	"github.com/zrquan/gatherer/pkg/input"
 	"github.com/zrquan/gatherer/pkg/output"
 	"github.com/zrquan/gatherer/pkg/util"
@@ -38,9 +39,13 @@ type Options struct {
 	UseChrome       bool
 	IgnoreQuery     bool
 	JSONFormat      bool
+	StatusFilter    string
+	ExtensionFilter string
+	LengthFilter    string
 
 	wordlist   *input.Wordlist
 	targetRoot string
+	filters    []filter.IFilter
 }
 
 func ParseOptions() (*Options, error) {
@@ -61,6 +66,9 @@ func ParseOptions() (*Options, error) {
 	flag.BoolVar(&opts.UseChrome, "ch", false, "Run Javascript in headless Chrome")
 	flag.BoolVar(&opts.IgnoreQuery, "igq", false, "Ignore the query portion on the URL from a[href]")
 	flag.BoolVar(&opts.JSONFormat, "json", false, "Log as JSON format")
+	flag.StringVar(&opts.StatusFilter, "sf", "", "Filter by status codes (separated by commas)")
+	flag.StringVar(&opts.ExtensionFilter, "ef", "", "Filter by extensions (separated by commas)")
+	flag.StringVar(&opts.LengthFilter, "lf", "", "Filter by response length (separated by commas)")
 
 	flag.Parse()
 
@@ -93,5 +101,28 @@ func validateOptions(opts *Options) error {
 		opts.wordlist = wl
 	}
 	output.SetFormatter(opts.JSONFormat)
+
+	if sf := opts.StatusFilter; sf != "" {
+		f, err := filter.NewFilterByName("status", sf)
+		if err != nil {
+			return err
+		}
+		opts.filters = append(opts.filters, f)
+	}
+	if ef := opts.ExtensionFilter; ef != "" {
+		f, err := filter.NewFilterByName("extension", ef)
+		if err != nil {
+			return err
+		}
+		opts.filters = append(opts.filters, f)
+	}
+	if lf := opts.LengthFilter; lf != "" {
+		f, err := filter.NewFilterByName("length", lf)
+		if err != nil {
+			return err
+		}
+		opts.filters = append(opts.filters, f)
+	}
+
 	return nil
 }

@@ -203,8 +203,33 @@ func (runner *Runner) prepareHooks() {
 		})
 	}
 
-	// 统计错误次数
 	c.OnError(func(r *colly.Response, err error) {
+		status := r.StatusCode
+		link := r.Request.URL.String()
+
+		if status >= 300 && status < 400 {
+			location := r.Headers.Get("Location")
+			if location == link+"/" {
+				runner.visitLink(location, r.Request)
+				return
+			}
+		}
+
+		for _, f := range opts.filters {
+			result, err := f.Filter(r)
+			if err != nil {
+				continue
+			}
+			if result {
+				return
+			}
+		}
+
+		log.WithFields(log.Fields{
+			"code":   status,
+			"length": len(r.Body),
+		}).Warn(r.Request.URL.String())
+
 		atomic.AddInt64(&runner.errorCounter, 1)
 	})
 
@@ -304,13 +329,13 @@ func (runner *Runner) prepareHooks() {
 			if strings.Contains(content, `document.createElement("script");`) {
 				dynamicLinks := finder.FindDynamicLinksFromJS(content, runner.browser)
 				for _, dl := range dynamicLinks {
-					log.Printf("Found dynamic script \"%s\" from JS file: %s", dl, r.Request.URL.String())
+					log.Debugf("Found dynamic script \"%s\" from JS file: %s", dl, r.Request.URL.String())
 					endpoints.Add(dl)
 				}
 			}
 
 			endpoints.Append(finder.FindLinksFromJS(content)...)
-			log.Printf("Found %d links from JS file: %s", endpoints.Cardinality(), r.Request.URL.String())
+			log.Debugf("Found %d links from JS file: %s", endpoints.Cardinality(), r.Request.URL.String())
 
 			for ep := range endpoints.Iterator().C {
 				var link string
@@ -339,6 +364,16 @@ func (runner *Runner) prepareHooks() {
 
 		url := r.Request.URL.String()
 		runner.urlSet.Add(url)
+
+		for _, f := range opts.filters {
+			result, err := f.Filter(r)
+			if err != nil {
+				continue
+			}
+			if result {
+				return
+			}
+		}
 
 		var fields log.Fields
 		if t := r.Ctx.Get("title"); t != "" {
