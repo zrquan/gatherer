@@ -16,16 +16,24 @@ Usage of ./gatherer:
         Debug mode
   -dep int
         Maximum path depth (default 1)
+  -ef string
+        Filter by extensions (separated by commas)
   -igq
         Ignore the query portion on the URL from a[href]
   -json
         Log as JSON format
+  -lf string
+        Filter by response length (separated by commas)
   -limit int
         Maximum number of concurrent requests (default 100)
   -nr
         Disallow auto redirect
   -proxy string
         Proxy URL
+  -rod string
+        Set the default value of options used by rod.
+  -sf string
+        Filter by status codes (separated by commas)
   -sub
         Allow to visit sub-domains
   -t int
