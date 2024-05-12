@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -278,22 +279,22 @@ func (runner *Runner) prepareHooks() {
 		}
 
 		if opts.UseChrome {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.Timeout)*time.Second)
-			defer cancel()
+			page := runner.browser.MustPage()
 
-			page := runner.browser.Context(ctx).MustPage(r.Request.URL.String())
-			defer page.MustClose()
-
-			err := page.WaitLoad()
+			err := rod.Try(func() {
+				page.
+					Timeout(time.Duration(opts.Timeout) * time.Second).
+					MustNavigate(r.Request.URL.String()).
+					MustWaitLoad()
+				content, _ := page.HTML()
+				r.Body = []byte(content)
+			})
 			if err != nil {
-				log.Warn("browser error: ", err)
-			} else {
-				content, err := page.HTML()
-				if err != nil {
-					log.Warn("browser error: ", err)
-				} else {
-					r.Body = []byte(content)
+				if errors.Is(err, context.DeadlineExceeded) {
+					log.Warn("browser timeout to visit:", r.Request.URL.String())
 				}
+				page.MustClose()
+				return
 			}
 		}
 
