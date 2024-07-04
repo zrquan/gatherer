@@ -71,6 +71,14 @@ func FindLinksFromJS(source string) []string {
 			endpoints = append(endpoints, ep)
 		}
 	}
+	sourceMappingURL := regexp.MustCompile(`(?:sourceMappingURL=)(.+\.map)`).FindAllStringSubmatch(source, -1)
+	for _, m := range sourceMappingURL {
+		// 确保作为相对路径解析
+		ep := "./" + m[1]
+		if !slices.Contains(endpoints, ep) {
+			endpoints = append(endpoints, ep)
+		}
+	}
 	return endpoints
 }
 

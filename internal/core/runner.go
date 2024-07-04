@@ -246,9 +246,26 @@ func (runner *Runner) prepareHooks() {
 		runner.visitLink(link, e.Request)
 	})
 
-	c.OnHTML("script[src]", func(e *colly.HTMLElement) {
-		link := e.Request.AbsoluteURL(e.Attr("src"))
-		runner.visitLink(link, e.Request)
+	c.OnHTML("script", func(e *colly.HTMLElement) {
+		if srcjs := e.Attr("src"); srcjs != "" {
+			link := e.Request.AbsoluteURL(srcjs)
+			runner.visitLink(link, e.Request)
+		}
+
+		if mainjs := e.Attr("data-main"); mainjs != "" {
+			if !strings.HasSuffix(mainjs, ".js") {
+				mainjs += ".js"
+			}
+			link := e.Request.AbsoluteURL(mainjs)
+			runner.visitLink(link, e.Request)
+		}
+
+		if e.Text != "" {
+			for _, endpoint := range finder.FindLinksFromJS(e.Text) {
+				link := e.Request.AbsoluteURL(endpoint)
+				runner.visitLink(link, e.Request)
+			}
+		}
 	})
 
 	c.OnHTML("form[action]", func(e *colly.HTMLElement) {
@@ -260,10 +277,6 @@ func (runner *Runner) prepareHooks() {
 		title := util.FilterNewLines(e.Text)
 		if title != "" {
 			e.Request.Ctx.Put("title", title)
-		}
-
-		if title == "Swagger UI" && strings.HasSuffix(e.Request.URL.Path, "swagger-ui.html") {
-			runner.visitLink(e.Request.AbsoluteURL("swagger-resources"), e.Request)
 		}
 	})
 
