@@ -226,24 +226,69 @@ func (runner *Runner) prepareHooks() {
 			}
 		}
 
-		log.WithFields(log.Fields{
-			"code":   status,
-			"length": len(r.Body),
-		}).Warn(r.Request.URL.String())
+		gologger.Info().
+			Str("code", strconv.Itoa(status)).
+			Str("length", strconv.Itoa(len(r.Body))).
+			Msg(r.Request.URL.String())
 
 		atomic.AddInt64(&runner.errorCounter, 1)
 	})
 
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		link := e.Request.AbsoluteURL(e.Attr("href"))
-		if opts.IgnoreQuery {
-			u, err := url.Parse(link)
-			if err != nil {
-				log.WithField("link", link).Error("Parse URL error")
-			}
-			link = util.StripQueryParams(u)
-		}
-		runner.visitLink(link, e.Request)
+	c.OnHTML("html", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "manifest")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("a", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "href", "ping")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("link", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "href")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("embed", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "src")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("frame", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "src")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("iframe", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "src")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("input[type='image' i]", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "src")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("isindex", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "action")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("applet", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "archive", "codebase")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("img", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "src", "dynsrc", "longdesc", "lowsrc")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("object", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "data", "codebase")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("base", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "href")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("import", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "implementation")
+		runner.visitLinks(e.Request, links...)
+	})
+	c.OnHTML("button", func(e *colly.HTMLElement) {
+		links := finder.FindLinksFromAttributes(opts.IgnoreQuery, e, "formaction")
+		runner.visitLinks(e.Request, links...)
 	})
 
 	c.OnHTML("script", func(e *colly.HTMLElement) {
@@ -405,6 +450,12 @@ func (runner *Runner) prepareHooks() {
 func (runner *Runner) visitLink(link string, request *colly.Request) {
 	if !runner.urlSet.Contains(link) {
 		request.Visit(link)
+	}
+}
+
+func (runner *Runner) visitLinks(request *colly.Request, links ...string) {
+	for _, l := range links {
+		runner.visitLink(l, request)
 	}
 }
 
